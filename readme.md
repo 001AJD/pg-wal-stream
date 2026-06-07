@@ -1,12 +1,12 @@
 # About
 
 - This project should stream the logical change data capture events from PostgreSQL to a file
-- Should capture the existing data
 - Should capture create, update and delete operation payload
+- Should capture the existing data
 
 ## Who is the end user?
 
-- Software Engineers who want to migrate data from postgres database to any other data storage
+- Anyone who wants to stream the change events from postgres
 
 ## What is the scope of this project?
 
