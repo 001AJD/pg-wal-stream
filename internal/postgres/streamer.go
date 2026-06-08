@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/001ajd/change-data-capture/internal/config"
 	"github.com/001ajd/change-data-capture/internal/dispatcher"
 	"github.com/jackc/pglogrepl"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -14,12 +15,12 @@ import (
 )
 
 type Streamer struct {
-	config     Config
+	config     config.Postgres
 	dispatcher dispatcher.Dispatcher
 	parser     *parser
 }
 
-func NewStreamer(config Config, dispatcher dispatcher.Dispatcher) *Streamer {
+func NewStreamer(config config.Postgres, dispatcher dispatcher.Dispatcher) *Streamer {
 	return &Streamer{
 		config:     config,
 		dispatcher: dispatcher,
@@ -53,7 +54,7 @@ func (s *Streamer) Run(ctx context.Context) error {
 }
 
 func (s *Streamer) receiveLoop(ctx context.Context, conn *pgconn.PgConn, lastLSN pglogrepl.LSN) error {
-	statusInterval := s.config.standbyStatusInterval()
+	statusInterval := standbyStatusInterval(s.config.StandbyStatusInterval)
 
 	for {
 		if err := ctx.Err(); err != nil {

@@ -33,7 +33,8 @@
   - It should dispatch the parsed message over to the sink connector API handler
 
 - Sink Module
-  - It is a destination where the change events payload will be pushed or written to. it can be local file, kafka topics,
-  - It should have capability to support multiple sinks. localfile currently.
-  - The sink module should expose the Sink API handler that receives the parsed payload from the dispatcher module and write it to the destination sink
-  - The messages should be acknowledged back to the after the sink has successfully written the message to the destination.
+  - It is a destination where the change events payload will be pushed or written to. For now add support for 1 sink ie localfile inside `destination` dir in the current project root dir.
+  - It should have capability to support multiple sinks.
+  - The sink module should expose the Sink API handler that receives the parsed payload from the dispatcher module and write the actual data to the destination sink
+  - The messages should be acknowledged back to the postgres module after the sink has successfully written the message to the destination.
+  - Use the JSONL file to store the payloads

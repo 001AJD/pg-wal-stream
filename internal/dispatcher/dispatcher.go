@@ -5,6 +5,7 @@ import (
 	"log"
 
 	"github.com/001ajd/change-data-capture/internal/cdc"
+	"github.com/001ajd/change-data-capture/internal/sink"
 )
 
 type Dispatcher interface {
@@ -27,4 +28,16 @@ func (d *LoggingDispatcher) Dispatch(_ context.Context, event cdc.Event) error {
 		len(event.Columns),
 	)
 	return nil
+}
+
+type SinkDispatcher struct {
+	handler *sink.Handler
+}
+
+func NewSinkDispatcher(handler *sink.Handler) *SinkDispatcher {
+	return &SinkDispatcher{handler: handler}
+}
+
+func (d *SinkDispatcher) Dispatch(ctx context.Context, event cdc.Event) error {
+	return d.handler.Handle(ctx, event)
 }
