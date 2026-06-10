@@ -10,6 +10,7 @@ import (
 
 type Dispatcher interface {
 	Dispatch(ctx context.Context, event cdc.Event) error
+	Close() error
 }
 
 type LoggingDispatcher struct {
@@ -31,6 +32,10 @@ func (d *LoggingDispatcher) Dispatch(_ context.Context, event cdc.Event) error {
 	return nil
 }
 
+func (d *LoggingDispatcher) Close() error {
+	return nil
+}
+
 type SinkDispatcher struct {
 	handler *sink.Handler
 }
@@ -41,4 +46,8 @@ func NewSinkDispatcher(handler *sink.Handler) *SinkDispatcher {
 
 func (d *SinkDispatcher) Dispatch(ctx context.Context, event cdc.Event) error {
 	return d.handler.Handle(ctx, event)
+}
+
+func (d *SinkDispatcher) Close() error {
+	return d.handler.Close()
 }

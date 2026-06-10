@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	appconfig "github.com/001ajd/change-data-capture/internal/config"
@@ -15,7 +17,8 @@ import (
 
 // entry point. The execution starts here
 func main() {
-	ctx := context.Background()
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
 
 	// Postgres database configuration + The sink configuration
 	// The publication, replication slot and replication level = logical should be already set before running this.

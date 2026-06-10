@@ -39,7 +39,7 @@ func (s *Streamer) Run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("connect to postgres: %w", err)
 	}
-	defer conn.Close(ctx)
+	defer conn.Close(context.Background())
 
 	s.logger.Info("pinging postgres")
 	if err := conn.Ping(ctx); err != nil {
@@ -58,7 +58,25 @@ func (s *Streamer) Run(ctx context.Context) error {
 		return fmt.Errorf("start replication: %w", err)
 	}
 
-	return s.receiveLoop(ctx, conn, startLSN)
+	err = s.receiveLoop(ctx, conn, startLSN)
+	if err != nil && (errors.Is(err, context.Canceled) || strings.Contains(err.Error(), "context canceled")) {
+		s.logger.Info("shutdown signal received, starting graceful shutdown")
+
+		if err := s.dispatcher.Close(); err != nil {
+			s.logger.Error("failed to close dispatcher", "error", err)
+		}
+
+		finalLSN := s.tracker.GetFlushed()
+		s.logger.Info("sending final standby status update", "lsn", finalLSN.String())
+		if err := s.sendStandbyStatus(context.Background(), conn, finalLSN, true); err != nil {
+			s.logger.Error("failed to send final standby status", "error", err)
+		}
+
+		s.logger.Info("graceful shutdown complete")
+		return nil
+	}
+
+	return err
 }
 
 func (s *Streamer) receiveLoop(ctx context.Context, conn *pgconn.PgConn, lastLSN pglogrepl.LSN) error {
