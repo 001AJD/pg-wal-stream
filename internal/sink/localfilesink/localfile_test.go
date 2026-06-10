@@ -1,4 +1,4 @@
-package sink
+package localfilesink
 
 import (
 	"bufio"
@@ -7,13 +7,14 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/001ajd/change-data-capture/internal/cdc"
 )
 
 func TestLocalFileSinkWritesJSONLRecord(t *testing.T) {
 	destinationDir := filepath.Join(t.TempDir(), "destination")
-	sink := NewLocalFileSink(destinationDir)
+	sink := NewLocalFileSink(destinationDir, nil)
 
 	event := cdc.Event{
 		Operation: cdc.OperationUpdate,
@@ -31,6 +32,10 @@ func TestLocalFileSinkWritesJSONLRecord(t *testing.T) {
 
 	if err := sink.Write(context.Background(), event); err != nil {
 		t.Fatalf("write event: %v", err)
+	}
+
+	if err := sink.Close(); err != nil {
+		t.Fatalf("close sink: %v", err)
 	}
 
 	records := readJSONLLines(t, filepath.Join(destinationDir, defaultJSONLFileName))
@@ -69,7 +74,7 @@ func TestLocalFileSinkWritesJSONLRecord(t *testing.T) {
 
 func TestLocalFileSinkAppendsRecords(t *testing.T) {
 	destinationDir := filepath.Join(t.TempDir(), "destination")
-	sink := NewLocalFileSink(destinationDir)
+	sink := NewLocalFileSink(destinationDir, nil)
 	event := cdc.Event{Operation: cdc.OperationInsert, Columns: map[string]cdc.Value{}}
 
 	if err := sink.Write(context.Background(), event); err != nil {
@@ -77,6 +82,10 @@ func TestLocalFileSinkAppendsRecords(t *testing.T) {
 	}
 	if err := sink.Write(context.Background(), event); err != nil {
 		t.Fatalf("write second event: %v", err)
+	}
+
+	if err := sink.Close(); err != nil {
+		t.Fatalf("close sink: %v", err)
 	}
 
 	records := readJSONLLines(t, filepath.Join(destinationDir, defaultJSONLFileName))
@@ -91,25 +100,25 @@ func TestLocalFileSinkReturnsErrorForInvalidDestination(t *testing.T) {
 		t.Fatalf("create destination file: %v", err)
 	}
 
-	sink := NewLocalFileSink(filePath)
+	sink := NewLocalFileSink(filePath, nil)
+
+	// Since Write is async, we might need a small delay or try multiple times
+	// to see the worker error propagated back to Write.
+	// Or just call Close and check the error.
+	
+	_ = sink.Write(context.Background(), cdc.Event{})
+	
+	// Wait a bit for worker to fail
+	time.Sleep(10 * time.Millisecond)
+	
 	err := sink.Write(context.Background(), cdc.Event{})
 	if err == nil {
-		t.Fatal("write error = nil, want error")
-	}
-}
-
-func TestHandlerWritesToAllSinks(t *testing.T) {
-	first := &recordingSink{}
-	second := &recordingSink{}
-	handler := NewHandler(first, second)
-
-	event := cdc.Event{Operation: cdc.OperationDelete}
-	if err := handler.Handle(context.Background(), event); err != nil {
-		t.Fatalf("handle event: %v", err)
+		// Try Close
+		err = sink.Close()
 	}
 
-	if len(first.events) != 1 || len(second.events) != 1 {
-		t.Fatalf("sink event counts = %d/%d, want 1/1", len(first.events), len(second.events))
+	if err == nil {
+		t.Fatal("write/close error = nil, want error")
 	}
 }
 
@@ -136,13 +145,4 @@ func readJSONLLines(t *testing.T, path string) []map[string]any {
 	}
 
 	return records
-}
-
-type recordingSink struct {
-	events []cdc.Event
-}
-
-func (s *recordingSink) Write(_ context.Context, event cdc.Event) error {
-	s.events = append(s.events, event)
-	return nil
 }

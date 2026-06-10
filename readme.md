@@ -38,3 +38,9 @@
   - The sink module should expose the Sink API handler that receives the parsed payload from the dispatcher module and write the actual data to the destination sink
   - The messages should be acknowledged back to the postgres module after the sink has successfully written the message to the destination.
   - Use the JSONL file to store the payloads
+
+### Next up
+
+- The LSN is not committed, maintained anywhere. Every run starts the processing from the start
+- Currently the local file sink setup combines the file location + type of the file. Decouple the location and the type. Research more on this.
+- Configure production grade logger.

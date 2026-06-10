@@ -42,6 +42,8 @@ func (s *recordingSink) Write(_ context.Context, event cdc.Event) error {
 	return nil
 }
 
+func (s *recordingSink) Close() error { return nil }
+
 type failingSink struct {
 	err error
 }
@@ -49,3 +51,5 @@ type failingSink struct {
 func (s *failingSink) Write(context.Context, cdc.Event) error {
 	return s.err
 }
+
+func (s *failingSink) Close() error { return nil }

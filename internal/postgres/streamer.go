@@ -18,13 +18,15 @@ type Streamer struct {
 	config     config.Postgres
 	dispatcher dispatcher.Dispatcher
 	parser     *parser
+	tracker    *LSNTracker
 }
 
-func NewStreamer(config config.Postgres, dispatcher dispatcher.Dispatcher) *Streamer {
+func NewStreamer(config config.Postgres, dispatcher dispatcher.Dispatcher, tracker *LSNTracker) *Streamer {
 	return &Streamer{
 		config:     config,
 		dispatcher: dispatcher,
 		parser:     newParser(),
+		tracker:    tracker,
 	}
 }
 
@@ -67,7 +69,7 @@ func (s *Streamer) receiveLoop(ctx context.Context, conn *pgconn.PgConn, lastLSN
 
 		if err != nil {
 			if errors.Is(err, context.DeadlineExceeded) {
-				if err := s.sendStandbyStatus(ctx, conn, lastLSN, false); err != nil {
+				if err := s.sendStandbyStatus(ctx, conn, s.tracker.GetFlushed(), false); err != nil {
 					return err
 				}
 				continue
@@ -93,7 +95,7 @@ func (s *Streamer) receiveLoop(ctx context.Context, conn *pgconn.PgConn, lastLSN
 				lastLSN = serverLSN
 			}
 			if replyRequested {
-				if err := s.sendStandbyStatus(ctx, conn, lastLSN, true); err != nil {
+				if err := s.sendStandbyStatus(ctx, conn, s.tracker.GetFlushed(), true); err != nil {
 					return err
 				}
 			}

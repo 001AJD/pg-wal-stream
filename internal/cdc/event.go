@@ -23,3 +23,7 @@ type Event struct {
 	CommitLSN string
 	Columns   map[string]Value
 }
+
+type Acker interface {
+	Acknowledge(lsn string)
+}
