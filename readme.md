@@ -39,8 +39,13 @@
   - The messages should be acknowledged back to the postgres module after the sink has successfully written the message to the destination.
   - Use the JSONL file to store the payloads
 
+### Done
+
+- Currently the local file sink setup combines the file location + type of the file. Decouple the location and the type. Research more on this. --done
+- Configure production grade logger. --done
+
 ### Next up
 
+- In case of localfiles or events streamed to files, should the files be splitted up perday, per hours. As of now there is only 1 file where all the data is being written. One file can grow pretty big eventually and become bottleneck. Think about it.
+- monitoring module. Current status. Consumer lag. how many rows are written to the destination. Think about it.
 - The LSN is not committed, maintained anywhere. Every run starts the processing from the start
-- Currently the local file sink setup combines the file location + type of the file. Decouple the location and the type. Research more on this.
-- Configure production grade logger.
