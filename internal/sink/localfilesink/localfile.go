@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 
 	"github.com/001ajd/change-data-capture/internal/cdc"
+	"github.com/001ajd/change-data-capture/internal/logger"
 )
 
 const (
@@ -27,6 +28,7 @@ type LocalFileSink struct {
 	destinationDir string
 	fileName       string
 	acker          cdc.Acker
+	logger         logger.Logger
 
 	eventChan chan eventBatchItem
 	err       atomic.Value // holds error
@@ -34,11 +36,12 @@ type LocalFileSink struct {
 	closed    atomic.Bool
 }
 
-func NewLocalFileSink(destinationDir string, acker cdc.Acker) *LocalFileSink {
+func NewLocalFileSink(l logger.Logger, destinationDir string, acker cdc.Acker) *LocalFileSink {
 	s := &LocalFileSink{
 		destinationDir: destinationDir,
 		fileName:       defaultJSONLFileName,
 		acker:          acker,
+		logger:         l.With("sink", "localfile", "dir", destinationDir),
 		eventChan:      make(chan eventBatchItem, defaultBufferSize),
 	}
 
@@ -101,27 +104,39 @@ func (s *LocalFileSink) checkWorkerError() error {
 func (s *LocalFileSink) worker() {
 	defer s.wg.Done()
 
+	s.logger.Info("starting local file sink worker")
+
 	if err := os.MkdirAll(s.destinationDir, 0o755); err != nil {
-		s.err.Store(fmt.Errorf("create destination directory: %w", err))
+		err = fmt.Errorf("create destination directory: %w", err)
+		s.logger.Error("failed to create destination directory", "error", err)
+		s.err.Store(err)
 		return
 	}
 
 	filePath := filepath.Join(s.destinationDir, s.fileName)
 	file, err := os.OpenFile(filePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
-		s.err.Store(fmt.Errorf("open jsonl file: %w", err))
+		err = fmt.Errorf("open jsonl file: %w", err)
+		s.logger.Error("failed to open jsonl file", "error", err, "path", filePath)
+		s.err.Store(err)
 		return
 	}
 	defer file.Close()
 
+	s.logger.Info("opened jsonl file for writing", "path", filePath)
+
 	for item := range s.eventChan {
 		if _, err := file.Write(item.data); err != nil {
-			s.err.Store(fmt.Errorf("write jsonl record: %w", err))
+			err = fmt.Errorf("write jsonl record: %w", err)
+			s.logger.Error("failed to write jsonl record", "error", err)
+			s.err.Store(err)
 			return
 		}
 
 		if err := file.Sync(); err != nil {
-			s.err.Store(fmt.Errorf("sync jsonl file: %w", err))
+			err = fmt.Errorf("sync jsonl file: %w", err)
+			s.logger.Error("failed to sync jsonl file", "error", err)
+			s.err.Store(err)
 			return
 		}
 
@@ -129,6 +144,8 @@ func (s *LocalFileSink) worker() {
 			s.acker.Acknowledge(item.lsn)
 		}
 	}
+
+	s.logger.Info("local file sink worker stopped")
 }
 
 type eventRecord struct {

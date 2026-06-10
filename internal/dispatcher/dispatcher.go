@@ -2,9 +2,9 @@ package dispatcher
 
 import (
 	"context"
-	"log"
 
 	"github.com/001ajd/change-data-capture/internal/cdc"
+	"github.com/001ajd/change-data-capture/internal/logger"
 	"github.com/001ajd/change-data-capture/internal/sink"
 )
 
@@ -12,20 +12,21 @@ type Dispatcher interface {
 	Dispatch(ctx context.Context, event cdc.Event) error
 }
 
-type LoggingDispatcher struct{}
+type LoggingDispatcher struct {
+	logger logger.Logger
+}
 
-func NewLoggingDispatcher() *LoggingDispatcher {
-	return &LoggingDispatcher{}
+func NewLoggingDispatcher(l logger.Logger) *LoggingDispatcher {
+	return &LoggingDispatcher{logger: l}
 }
 
 func (d *LoggingDispatcher) Dispatch(_ context.Context, event cdc.Event) error {
-	log.Printf(
-		"cdc event operation=%s table=%s.%s lsn=%s columns=%d",
-		event.Operation,
-		event.Schema,
-		event.Table,
-		event.LSN,
-		len(event.Columns),
+	d.logger.Info(
+		"cdc event received",
+		"operation", event.Operation,
+		"table", event.Schema+"."+event.Table,
+		"lsn", event.LSN,
+		"columns", len(event.Columns),
 	)
 	return nil
 }

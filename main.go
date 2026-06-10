@@ -2,11 +2,12 @@ package main
 
 import (
 	"context"
-	"log"
+	"os"
 	"time"
 
 	appconfig "github.com/001ajd/change-data-capture/internal/config"
 	"github.com/001ajd/change-data-capture/internal/dispatcher"
+	"github.com/001ajd/change-data-capture/internal/logger"
 	"github.com/001ajd/change-data-capture/internal/postgres"
 	"github.com/001ajd/change-data-capture/internal/sink"
 	"github.com/jackc/pglogrepl"
@@ -19,6 +20,7 @@ func main() {
 	// Postgres database configuration + The sink configuration
 	// The publication, replication slot and replication level = logical should be already set before running this.
 	config := appconfig.Config{
+		LogLevel: "debug",
 		Postgres: appconfig.Postgres{
 			ConnString:            "host=localhost port=5432 user=replicator password=secret dbname=domains replication=database",
 			SlotName:              "slot_domain_cdc",
@@ -34,22 +36,27 @@ func main() {
 		},
 	}
 
+	l := logger.NewDefaultLogger(config.LogLevel)
+
 	startLSN, err := pglogrepl.ParseLSN(config.Postgres.StartLSN)
 	if err != nil {
-		log.Fatalf("parse start lsn: %v", err)
+		l.Error("failed to parse start lsn", "error", err, "lsn", config.Postgres.StartLSN)
+		os.Exit(1)
 	}
 
 	tracker := postgres.NewLSNTracker(startLSN)
 
-	configuredSink, err := sink.NewFromConfig(config.Sink, tracker)
+	configuredSink, err := sink.NewFromConfig(l, config.Sink, tracker)
 	if err != nil {
-		log.Fatal(err)
+		l.Error("failed to configure sink", "error", err)
+		os.Exit(1)
 	}
 
 	sinkHandler := sink.NewHandler(configuredSink)
 	defer sinkHandler.Close()
-	streamer := postgres.NewStreamer(config.Postgres, dispatcher.NewSinkDispatcher(sinkHandler), tracker)
+	streamer := postgres.NewStreamer(l, config.Postgres, dispatcher.NewSinkDispatcher(sinkHandler), tracker)
 	if err := streamer.Run(ctx); err != nil {
-		log.Fatal(err)
+		l.Error("streamer error", "error", err)
+		os.Exit(1)
 	}
 }

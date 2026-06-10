@@ -5,6 +5,7 @@ import "time"
 const SinkTypeLocalFile = "localfile"
 
 type Config struct {
+	LogLevel string
 	Postgres Postgres
 	Sink     Sink
 }

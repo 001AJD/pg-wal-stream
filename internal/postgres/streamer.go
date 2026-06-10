@@ -9,6 +9,7 @@ import (
 
 	"github.com/001ajd/change-data-capture/internal/config"
 	"github.com/001ajd/change-data-capture/internal/dispatcher"
+	"github.com/001ajd/change-data-capture/internal/logger"
 	"github.com/jackc/pglogrepl"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgproto3"
@@ -19,24 +20,28 @@ type Streamer struct {
 	dispatcher dispatcher.Dispatcher
 	parser     *parser
 	tracker    *LSNTracker
+	logger     logger.Logger
 }
 
-func NewStreamer(config config.Postgres, dispatcher dispatcher.Dispatcher, tracker *LSNTracker) *Streamer {
+func NewStreamer(l logger.Logger, config config.Postgres, dispatcher dispatcher.Dispatcher, tracker *LSNTracker) *Streamer {
 	return &Streamer{
 		config:     config,
 		dispatcher: dispatcher,
 		parser:     newParser(),
 		tracker:    tracker,
+		logger:     l.With("module", "streamer"),
 	}
 }
 
 func (s *Streamer) Run(ctx context.Context) error {
+	s.logger.Info("connecting to postgres", "conn_string", s.config.ConnString)
 	conn, err := pgconn.Connect(ctx, s.config.ConnString)
 	if err != nil {
 		return fmt.Errorf("connect to postgres: %w", err)
 	}
 	defer conn.Close(ctx)
 
+	s.logger.Info("pinging postgres")
 	if err := conn.Ping(ctx); err != nil {
 		return fmt.Errorf("ping postgres: %w", err)
 	}
@@ -46,6 +51,7 @@ func (s *Streamer) Run(ctx context.Context) error {
 		return fmt.Errorf("parse start lsn: %w", err)
 	}
 
+	s.logger.Info("starting replication", "slot_name", s.config.SlotName, "start_lsn", startLSN.String())
 	if err := pglogrepl.StartReplication(ctx, conn, s.config.SlotName, startLSN, pglogrepl.StartReplicationOptions{
 		PluginArgs: s.pluginArgs(),
 	}); err != nil {
@@ -89,8 +95,10 @@ func (s *Streamer) receiveLoop(ctx context.Context, conn *pgconn.PgConn, lastLSN
 		case pglogrepl.PrimaryKeepaliveMessageByteID:
 			replyRequested, serverLSN, err := parseKeepalive(copyData.Data[1:])
 			if err != nil {
+				s.logger.Error("failed to parse primary keepalive message", "error", err)
 				return err
 			}
+			s.logger.Debug("primary keepalive message received", "server_lsn", serverLSN.String(), "reply_requested", replyRequested)
 			if serverLSN > lastLSN {
 				lastLSN = serverLSN
 			}
@@ -137,6 +145,7 @@ func (s *Streamer) handleXLogData(ctx context.Context, data []byte) (pglogrepl.L
 }
 
 func (s *Streamer) sendStandbyStatus(ctx context.Context, conn *pgconn.PgConn, lsn pglogrepl.LSN, replyRequested bool) error {
+	s.logger.Debug("sending standby status update", "lsn", lsn.String(), "reply_requested", replyRequested)
 	if err := pglogrepl.SendStandbyStatusUpdate(ctx, conn, pglogrepl.StandbyStatusUpdate{
 		WALWritePosition: lsn,
 		WALFlushPosition: lsn,

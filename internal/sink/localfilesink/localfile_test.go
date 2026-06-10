@@ -10,11 +10,12 @@ import (
 	"time"
 
 	"github.com/001ajd/change-data-capture/internal/cdc"
+	"github.com/001ajd/change-data-capture/internal/logger"
 )
 
 func TestLocalFileSinkWritesJSONLRecord(t *testing.T) {
 	destinationDir := filepath.Join(t.TempDir(), "destination")
-	sink := NewLocalFileSink(destinationDir, nil)
+	sink := NewLocalFileSink(logger.NewNopLogger(), destinationDir, nil)
 
 	event := cdc.Event{
 		Operation: cdc.OperationUpdate,
@@ -74,7 +75,7 @@ func TestLocalFileSinkWritesJSONLRecord(t *testing.T) {
 
 func TestLocalFileSinkAppendsRecords(t *testing.T) {
 	destinationDir := filepath.Join(t.TempDir(), "destination")
-	sink := NewLocalFileSink(destinationDir, nil)
+	sink := NewLocalFileSink(logger.NewNopLogger(), destinationDir, nil)
 	event := cdc.Event{Operation: cdc.OperationInsert, Columns: map[string]cdc.Value{}}
 
 	if err := sink.Write(context.Background(), event); err != nil {
@@ -100,7 +101,7 @@ func TestLocalFileSinkReturnsErrorForInvalidDestination(t *testing.T) {
 		t.Fatalf("create destination file: %v", err)
 	}
 
-	sink := NewLocalFileSink(filePath, nil)
+	sink := NewLocalFileSink(logger.NewNopLogger(), filePath, nil)
 
 	// Since Write is async, we might need a small delay or try multiple times
 	// to see the worker error propagated back to Write.
