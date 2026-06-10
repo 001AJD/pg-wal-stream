@@ -18,34 +18,36 @@
 - End user will specify the source postgres database connection details in YML file
 - End user will specify the destination disk storage where the change data capture payload files can be written
 
-### Internal components
+## Architecture & Modules
 
-- entry point it can be main.go for now
-  -postgres module
-  - take care of postgres connection
-  - sending keep alive messages to the postgres
-  - receiving messages from replication slot
-  - parse the messages as they are received from replication slot
-  - send the parsed message to the dispatcher
+Here is a high-level overview of how the internal modules work together to stream changes from PostgreSQL to the destination.
 
-- Dispatcher module
-  - It is reponsible to receive the parsed message from the postgres module
-  - It should dispatch the parsed message over to the sink connector API handler
+```mermaid
+graph LR
+    PostgresDB[PostgreSQL] -- WAL Stream --> Streamer[Streamer]
 
-- Sink Module
-  - It is a destination where the change events payload will be pushed or written to. For now add support for 1 sink ie localfile inside `destination` dir in the current project root dir.
-  - It should have capability to support multiple sinks.
-  - The sink module should expose the Sink API handler that receives the parsed payload from the dispatcher module and write the actual data to the destination sink
-  - The messages should be acknowledged back to the postgres module after the sink has successfully written the message to the destination.
-  - Use the JSONL file to store the payloads
+    subgraph "Postgres Module"
+        Streamer -- Raw Data --> Parser[Parser]
+        Parser -- cdc.Event --> Dispatcher[Dispatcher]
+    end
 
-### Done
+    subgraph "Sink Module"
+        Dispatcher -- cdc.Event --> SinkHandler[Sink Handler]
+        SinkHandler -- Event --> LocalFileSink[Local File Sink]
+        LocalFileSink -- Write/Sync --> Disk[Local File System]
+    end
 
-- Currently the local file sink setup combines the file location + type of the file. Decouple the location and the type. Research more on this. --done
-- Configure production grade logger. --done
+    subgraph "State Management"
+        LocalFileSink -- Acknowledge LSN --> Tracker[LSN Tracker]
+        Tracker -- Flushed LSN --> Streamer
+    end
 
-### Next up
+    Streamer -. Standby Status update .-> PostgresDB
+```
 
-- In case of localfiles or events streamed to files, should the files be splitted up perday, per hours. As of now there is only 1 file where all the data is being written. One file can grow pretty big eventually and become bottleneck. Think about it.
-- monitoring module. Current status. Consumer lag. how many rows are written to the destination. Think about it.
-- The LSN is not committed, maintained anywhere. Every run starts the processing from the start
+- **Main (Entry Point)**: Initializes configuration, logger, and bootstraps the pipeline by linking the Postgres, Dispatcher, and Sink modules together.
+- **Postgres Module**: Manages the connection to the PostgreSQL database. It listens to logical replication slots, receives WAL (Write-Ahead Log) messages, parses them into structured `cdc.Event` payloads, and forwards them to the Dispatcher. It also handles sending keepalive and standby status updates back to Postgres to advance the LSN (Log Sequence Number).
+- **Dispatcher Module**: Acts as the router. It receives parsed `cdc.Event` payloads from the Postgres module and dispatches them to the configured downstream Sink handlers.
+- **Sink Module**: The destination for CDC events. It provides an interface to support multiple sinks. The primary implementation is `localfile`, which receives events from the dispatcher and appends them to local files in JSONL format.
+- **CDC Module**: Defines the shared domain models (like `Event`) that represent the data payload traversing the system.
+- **Config & Logger**: Provide centralized configuration management and structured logging across all components.
