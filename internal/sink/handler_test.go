@@ -12,7 +12,7 @@ func TestHandlerWritesToAllSinks(t *testing.T) {
 	first := &recordingSink{}
 	second := &recordingSink{}
 	encoder := &recordingEncoder{data: []byte("{}\n")}
-	handler := NewHandler(encoder, first, second)
+	handler := NewHandler(encoder, nil, first, second)
 
 	event := cdc.Event{Operation: cdc.OperationDelete, LSN: "0/2"}
 	if err := handler.Handle(context.Background(), event); err != nil {
@@ -33,7 +33,7 @@ func TestHandlerWritesToAllSinks(t *testing.T) {
 func TestHandlerReturnsEncoderError(t *testing.T) {
 	encoderErr := errors.New("encode failed")
 	target := &recordingSink{}
-	handler := NewHandler(&recordingEncoder{err: encoderErr}, target)
+	handler := NewHandler(&recordingEncoder{err: encoderErr}, nil, target)
 
 	err := handler.Handle(context.Background(), cdc.Event{})
 	if !errors.Is(err, encoderErr) {
@@ -46,7 +46,7 @@ func TestHandlerReturnsEncoderError(t *testing.T) {
 
 func TestHandlerReturnsSinkError(t *testing.T) {
 	sinkErr := errors.New("sink failed")
-	handler := NewHandler(&recordingEncoder{data: []byte("{}\n")}, &failingSink{err: sinkErr})
+	handler := NewHandler(&recordingEncoder{data: []byte("{}\n")}, nil, &failingSink{err: sinkErr})
 
 	err := handler.Handle(context.Background(), cdc.Event{})
 	if !errors.Is(err, sinkErr) {

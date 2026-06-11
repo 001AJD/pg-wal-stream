@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/001ajd/change-data-capture/internal/cdc"
+	"github.com/001ajd/change-data-capture/internal/observability/metrics"
 )
 
 type Sink interface {
@@ -19,13 +20,26 @@ type Encoder interface {
 type Handler struct {
 	encoder Encoder
 	sinks   []Sink
+	metrics *metrics.Metrics
 }
 
-func NewHandler(encoder Encoder, sinks ...Sink) *Handler {
-	return &Handler{encoder: encoder, sinks: sinks}
+func NewHandler(encoder Encoder, m *metrics.Metrics, sinks ...Sink) *Handler {
+	return &Handler{encoder: encoder, sinks: sinks, metrics: m}
 }
 
 func (h *Handler) Handle(ctx context.Context, event cdc.Event) error {
+	if h.metrics != nil {
+		switch event.Operation {
+		case cdc.OperationInsert:
+			h.metrics.TotalInserts.Inc()
+		case cdc.OperationUpdate:
+			h.metrics.TotalUpdates.Inc()
+		case cdc.OperationDelete:
+			h.metrics.TotalDeletes.Inc()
+		}
+		h.metrics.EventsPerTable.WithLabelValues(event.Schema, event.Table, string(event.Operation)).Inc()
+	}
+
 	data, err := h.encoder.Encode(event)
 	if err != nil {
 		return fmt.Errorf("encode event: %w", err)

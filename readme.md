@@ -80,3 +80,23 @@ graph LR
 - **State Management**: Uses an `LSN Tracker` to keep track of the last successfully flushed LSN. This ensures that in case of a restart, the streamer can resume from the correct position.
 - **CDC Module**: Defines the shared domain models (like `Event` and `EncodedEvent`) that represent the data payload traversing the system.
 - **Config & Logger**: Provide centralized configuration management and structured logging across all components.
+
+## Project Structure
+
+```bash
+.
+├── docs/               # Documentation for features and architecture
+├── internal/
+│   ├── cdc/            # Core domain models for Change Data Capture
+│   ├── config/         # Configuration management
+│   ├── dispatcher/     # Event routing logic
+│   ├── encoder/        # Data transformation (e.g., JSONL)
+│   ├── logger/         # Structured logging
+│   ├── postgres/       # Postgres streaming, parsing, and LSN tracking
+│   └── sink/           # Data persistence handlers (e.g., local file)
+├── go.mod              # Go module definition
+├── go.sum              # Go module checksums
+├── LICENSE             # Project license
+├── main.go             # Application entry point
+└── readme.md           # Project documentation
+```

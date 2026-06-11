@@ -14,7 +14,7 @@ func TestNewFromConfigCreatesLocalFileSink(t *testing.T) {
 		LocalFile: config.LocalFileSink{
 			DestinationDir: "destination",
 		},
-	}, nil)
+	}, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("new sink from config: %v", err)
 	}
@@ -25,14 +25,14 @@ func TestNewFromConfigCreatesLocalFileSink(t *testing.T) {
 }
 
 func TestNewFromConfigReturnsErrorForUnsupportedSinkType(t *testing.T) {
-	_, err := NewFromConfig(logger.NewNopLogger(), config.Sink{Type: "unknown"}, nil)
+	_, err := NewFromConfig(logger.NewNopLogger(), config.Sink{Type: "unknown"}, nil, nil, nil)
 	if err == nil {
 		t.Fatal("error = nil, want unsupported sink type error")
 	}
 }
 
 func TestNewFromConfigReturnsErrorForMissingLocalFileDestination(t *testing.T) {
-	_, err := NewFromConfig(logger.NewNopLogger(), config.Sink{Type: config.SinkTypeLocalFile}, nil)
+	_, err := NewFromConfig(logger.NewNopLogger(), config.Sink{Type: config.SinkTypeLocalFile}, nil, nil, nil)
 	if err == nil {
 		t.Fatal("error = nil, want missing destination error")
 	}

@@ -17,7 +17,7 @@ import (
 func TestLocalFileSinkWritesJSONLRecord(t *testing.T) {
 	destinationDir := filepath.Join(t.TempDir(), "destination")
 	acker := &recordingAcker{}
-	sink := NewLocalFileSink(logger.NewNopLogger(), destinationDir, acker)
+	sink := NewLocalFileSink(logger.NewNopLogger(), destinationDir, acker, nil, nil)
 
 	event := cdc.EncodedEvent{
 		Data: []byte(`{"operation":"update","schema":"public","table":"domains","lsn":"0/2","commit_lsn":"0/3","columns":{"blob":{"binary":"aGVsbG8="},"body":{"unchanged_toasted":true},"name":"example.com","status":null}}` + "\n"),
@@ -71,7 +71,7 @@ func TestLocalFileSinkWritesJSONLRecord(t *testing.T) {
 
 func TestLocalFileSinkAppendsRecords(t *testing.T) {
 	destinationDir := filepath.Join(t.TempDir(), "destination")
-	sink := NewLocalFileSink(logger.NewNopLogger(), destinationDir, nil)
+	sink := NewLocalFileSink(logger.NewNopLogger(), destinationDir, nil, nil, nil)
 	event := cdc.EncodedEvent{Data: []byte(`{"operation":"insert","columns":{}}` + "\n"), LSN: "0/1"}
 
 	if err := sink.Write(context.Background(), event); err != nil {
@@ -97,7 +97,7 @@ func TestLocalFileSinkReturnsErrorForInvalidDestination(t *testing.T) {
 		t.Fatalf("create destination file: %v", err)
 	}
 
-	sink := NewLocalFileSink(logger.NewNopLogger(), filePath, nil)
+	sink := NewLocalFileSink(logger.NewNopLogger(), filePath, nil, nil, nil)
 	event := cdc.EncodedEvent{Data: []byte("{}\n"), LSN: "0/1"}
 
 	// Since Write is async, we might need a small delay or try multiple times

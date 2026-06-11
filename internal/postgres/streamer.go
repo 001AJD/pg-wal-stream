@@ -5,11 +5,15 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/001ajd/change-data-capture/internal/config"
 	"github.com/001ajd/change-data-capture/internal/dispatcher"
 	"github.com/001ajd/change-data-capture/internal/logger"
+	"github.com/001ajd/change-data-capture/internal/observability/health"
+	"github.com/001ajd/change-data-capture/internal/observability/metrics"
 	"github.com/jackc/pglogrepl"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgproto3"
@@ -21,16 +25,58 @@ type Streamer struct {
 	parser     *parser
 	tracker    *LSNTracker
 	logger     logger.Logger
+	metrics    *metrics.Metrics
+	health     *health.Registry
+
+	connMu sync.RWMutex
+	conn   *pgconn.PgConn
+
+	lastRateUpdate time.Time
+	bytesReceived  uint64
+
+	lastHeartbeat atomic.Pointer[time.Time]
 }
 
-func NewStreamer(l logger.Logger, config config.Postgres, dispatcher dispatcher.Dispatcher, tracker *LSNTracker) *Streamer {
-	return &Streamer{
-		config:     config,
-		dispatcher: dispatcher,
-		parser:     newParser(),
-		tracker:    tracker,
-		logger:     l.With("module", "streamer"),
+func NewStreamer(l logger.Logger, config config.Postgres, dispatcher dispatcher.Dispatcher, tracker *LSNTracker, m *metrics.Metrics, h *health.Registry) *Streamer {
+	now := time.Now()
+	s := &Streamer{
+		config:         config,
+		dispatcher:     dispatcher,
+		parser:         newParser(),
+		tracker:        tracker,
+		logger:         l.With("module", "streamer"),
+		metrics:        m,
+		health:         h,
+		lastRateUpdate: now,
 	}
+	s.lastHeartbeat.Store(&now)
+
+	if h != nil {
+		h.AddReadinessCheck("postgres_replication", health.CheckerFunc(func(ctx context.Context) error {
+			s.connMu.RLock()
+			defer s.connMu.RUnlock()
+			if s.conn == nil {
+				return fmt.Errorf("postgres connection is nil")
+			}
+			// We avoid calling s.conn.Ping(ctx) here because the connection is busy
+			// with the replication stream. Liveness check handles active health.
+			return nil
+		}))
+
+		h.AddLivenessCheck("streamer_loop", health.CheckerFunc(func(ctx context.Context) error {
+			last := s.lastHeartbeat.Load()
+			if last == nil {
+				return fmt.Errorf("no heartbeat recorded")
+			}
+			threshold := standbyStatusInterval(s.config.StandbyStatusInterval) * 3
+			if time.Since(*last) > threshold {
+				return fmt.Errorf("last heartbeat too old: %v", time.Since(*last))
+			}
+			return nil
+		}))
+	}
+
+	return s
 }
 
 func (s *Streamer) Run(ctx context.Context) error {
@@ -40,6 +86,10 @@ func (s *Streamer) Run(ctx context.Context) error {
 		return fmt.Errorf("connect to postgres: %w", err)
 	}
 	defer conn.Close(context.Background())
+
+	s.connMu.Lock()
+	s.conn = conn
+	s.connMu.Unlock()
 
 	s.logger.Info("pinging postgres")
 	if err := conn.Ping(ctx); err != nil {
@@ -83,6 +133,9 @@ func (s *Streamer) receiveLoop(ctx context.Context, conn *pgconn.PgConn, lastLSN
 	statusInterval := standbyStatusInterval(s.config.StandbyStatusInterval)
 
 	for {
+		now := time.Now()
+		s.lastHeartbeat.Store(&now)
+
 		if err := ctx.Err(); err != nil {
 			return err
 		}
@@ -109,18 +162,41 @@ func (s *Streamer) receiveLoop(ctx context.Context, conn *pgconn.PgConn, lastLSN
 			continue
 		}
 
+		if s.metrics != nil {
+			s.bytesReceived += uint64(len(copyData.Data))
+			now := time.Now()
+			if now.Sub(s.lastRateUpdate) >= time.Second {
+				duration := now.Sub(s.lastRateUpdate).Seconds()
+				rate := float64(s.bytesReceived) / duration
+				s.metrics.WalReceiveRate.Set(rate)
+				s.bytesReceived = 0
+				s.lastRateUpdate = now
+			}
+		}
+
 		switch copyData.Data[0] {
 		case pglogrepl.PrimaryKeepaliveMessageByteID:
-			replyRequested, serverLSN, err := parseKeepalive(copyData.Data[1:])
+			pkm, err := pglogrepl.ParsePrimaryKeepaliveMessage(copyData.Data[1:])
 			if err != nil {
 				s.logger.Error("failed to parse primary keepalive message", "error", err)
 				return err
 			}
-			s.logger.Debug("primary keepalive message received", "server_lsn", serverLSN.String(), "reply_requested", replyRequested)
-			if serverLSN > lastLSN {
-				lastLSN = serverLSN
+			s.logger.Debug("primary keepalive message received", "server_lsn", pkm.ServerWALEnd.String(), "reply_requested", pkm.ReplyRequested)
+
+			if s.metrics != nil {
+				s.metrics.CurrentReceivedLSN.Set(float64(uint64(pkm.ServerWALEnd)))
+				lagBytes := uint64(0)
+				if pkm.ServerWALEnd > lastLSN {
+					lagBytes = uint64(pkm.ServerWALEnd - lastLSN)
+				}
+				s.metrics.ReplicationLagBytes.Set(float64(lagBytes))
+				s.metrics.ReplicationLagSeconds.Set(time.Since(pkm.ServerTime).Seconds())
 			}
-			if replyRequested {
+
+			if pkm.ServerWALEnd > lastLSN {
+				lastLSN = pkm.ServerWALEnd
+			}
+			if pkm.ReplyRequested {
 				if err := s.sendStandbyStatus(ctx, conn, s.tracker.GetFlushed(), true); err != nil {
 					return err
 				}
@@ -141,6 +217,11 @@ func (s *Streamer) handleXLogData(ctx context.Context, data []byte) (pglogrepl.L
 	xld, err := pglogrepl.ParseXLogData(data)
 	if err != nil {
 		return 0, fmt.Errorf("parse xlog data: %w", err)
+	}
+
+	if s.metrics != nil {
+		s.metrics.CurrentReceivedLSN.Set(float64(uint64(xld.WALStart)))
+		s.metrics.ReplicationLagSeconds.Set(time.Since(xld.ServerTime).Seconds())
 	}
 
 	logicalMsg, err := pglogrepl.Parse(xld.WALData)
@@ -182,12 +263,4 @@ func (s *Streamer) pluginArgs() []string {
 		args = append(args, fmt.Sprintf("publication_names '%s'", strings.Join(s.config.PublicationNames, ",")))
 	}
 	return args
-}
-
-func parseKeepalive(data []byte) (bool, pglogrepl.LSN, error) {
-	message, err := pglogrepl.ParsePrimaryKeepaliveMessage(data)
-	if err != nil {
-		return false, 0, fmt.Errorf("parse primary keepalive message: %w", err)
-	}
-	return message.ReplyRequested, message.ServerWALEnd, nil
 }
