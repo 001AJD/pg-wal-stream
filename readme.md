@@ -24,25 +24,35 @@ Here is a high-level overview of how the internal modules work together to strea
 
 ```mermaid
 graph LR
-    PostgresDB[PostgreSQL] -- WAL Stream --> Streamer[Streamer]
+    PostgresDB[PostgreSQL] -->|WAL Stream| Streamer[Streamer]
 
-    subgraph "Postgres Module"
-        Streamer -- Raw Data --> Parser[Parser]
-        Parser -- cdc.Event --> Dispatcher[Dispatcher]
+    subgraph PostgresModule["Postgres Module"]
+        Streamer -->|Raw WAL Data| Parser[Parser]
+        Parser -->|cdc.Event| Dispatcher[Dispatcher]
     end
 
-    subgraph "Sink Module"
-        Dispatcher -- cdc.Event --> SinkHandler[Sink Handler]
-        SinkHandler -- Event --> LocalFileSink[Local File Sink]
-        LocalFileSink -- Write/Sync --> Disk[Local File System]
+    subgraph SinkModule["Sink Pipeline"]
+        Dispatcher -->|cdc.Event| Encoder[JSONL Encoder]
+        Encoder -->|Encoded JSONL Payload| LocalFileSink[Local File Sink]
+        LocalFileSink -->|Write / Sync| Disk[Local File System]
     end
 
-    subgraph "State Management"
-        LocalFileSink -- Acknowledge LSN --> Tracker[LSN Tracker]
-        Tracker -- Flushed LSN --> Streamer
+    subgraph StateManagement["State Management"]
+        LocalFileSink -->|Acknowledge LSN| Tracker[LSN Tracker]
+        Tracker -->|Flushed LSN| Streamer
     end
 
-    Streamer -. Standby Status update .-> PostgresDB
+    Streamer -.->|Standby Status Update| PostgresDB
+
+    classDef postgres fill:#E3F2FD,stroke:#1E88E5,color:#000000
+    classDef pipeline fill:#E8F5E9,stroke:#43A047,color:#000000
+    classDef storage fill:#FFF3E0,stroke:#FB8C00,color:#000000
+    classDef state fill:#F3E5F5,stroke:#8E24AA,color:#000000
+
+    class PostgresDB,Streamer,Parser postgres
+    class Dispatcher,Encoder pipeline
+    class LocalFileSink,Disk storage
+    class Tracker state
 ```
 
 - **Main (Entry Point)**: Initializes configuration, logger, and bootstraps the pipeline by linking the Postgres, Dispatcher, and Sink modules together.

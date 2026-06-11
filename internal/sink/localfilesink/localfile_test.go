@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -15,20 +16,12 @@ import (
 
 func TestLocalFileSinkWritesJSONLRecord(t *testing.T) {
 	destinationDir := filepath.Join(t.TempDir(), "destination")
-	sink := NewLocalFileSink(logger.NewNopLogger(), destinationDir, nil)
+	acker := &recordingAcker{}
+	sink := NewLocalFileSink(logger.NewNopLogger(), destinationDir, acker)
 
-	event := cdc.Event{
-		Operation: cdc.OperationUpdate,
-		Schema:    "public",
-		Table:     "domains",
-		LSN:       "0/2",
-		CommitLSN: "0/3",
-		Columns: map[string]cdc.Value{
-			"name":   {Text: "example.com"},
-			"status": {Null: true},
-			"blob":   {Binary: []byte("hello")},
-			"body":   {UnchangedToasted: true},
-		},
+	event := cdc.EncodedEvent{
+		Data: []byte(`{"operation":"update","schema":"public","table":"domains","lsn":"0/2","commit_lsn":"0/3","columns":{"blob":{"binary":"aGVsbG8="},"body":{"unchanged_toasted":true},"name":"example.com","status":null}}` + "\n"),
+		LSN:  "0/2",
 	}
 
 	if err := sink.Write(context.Background(), event); err != nil {
@@ -71,12 +64,15 @@ func TestLocalFileSinkWritesJSONLRecord(t *testing.T) {
 	if got := columns["body"].(map[string]any)["unchanged_toasted"]; got != true {
 		t.Fatalf("body unchanged_toasted = %v, want true", got)
 	}
+	if got := acker.LSNs(); len(got) != 1 || got[0] != "0/2" {
+		t.Fatalf("acked LSNs = %v, want [0/2]", got)
+	}
 }
 
 func TestLocalFileSinkAppendsRecords(t *testing.T) {
 	destinationDir := filepath.Join(t.TempDir(), "destination")
 	sink := NewLocalFileSink(logger.NewNopLogger(), destinationDir, nil)
-	event := cdc.Event{Operation: cdc.OperationInsert, Columns: map[string]cdc.Value{}}
+	event := cdc.EncodedEvent{Data: []byte(`{"operation":"insert","columns":{}}` + "\n"), LSN: "0/1"}
 
 	if err := sink.Write(context.Background(), event); err != nil {
 		t.Fatalf("write first event: %v", err)
@@ -102,17 +98,18 @@ func TestLocalFileSinkReturnsErrorForInvalidDestination(t *testing.T) {
 	}
 
 	sink := NewLocalFileSink(logger.NewNopLogger(), filePath, nil)
+	event := cdc.EncodedEvent{Data: []byte("{}\n"), LSN: "0/1"}
 
 	// Since Write is async, we might need a small delay or try multiple times
 	// to see the worker error propagated back to Write.
 	// Or just call Close and check the error.
-	
-	_ = sink.Write(context.Background(), cdc.Event{})
-	
+
+	_ = sink.Write(context.Background(), event)
+
 	// Wait a bit for worker to fail
 	time.Sleep(10 * time.Millisecond)
-	
-	err := sink.Write(context.Background(), cdc.Event{})
+
+	err := sink.Write(context.Background(), event)
 	if err == nil {
 		// Try Close
 		err = sink.Close()
@@ -146,4 +143,24 @@ func readJSONLLines(t *testing.T, path string) []map[string]any {
 	}
 
 	return records
+}
+
+type recordingAcker struct {
+	mu   sync.Mutex
+	lsns []string
+}
+
+func (a *recordingAcker) Acknowledge(lsn string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.lsns = append(a.lsns, lsn)
+}
+
+func (a *recordingAcker) LSNs() []string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	lsns := make([]string, len(a.lsns))
+	copy(lsns, a.lsns)
+	return lsns
 }

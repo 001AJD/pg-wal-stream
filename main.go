@@ -9,6 +9,7 @@ import (
 
 	appconfig "github.com/001ajd/change-data-capture/internal/config"
 	"github.com/001ajd/change-data-capture/internal/dispatcher"
+	"github.com/001ajd/change-data-capture/internal/encoder/jsonl"
 	"github.com/001ajd/change-data-capture/internal/logger"
 	"github.com/001ajd/change-data-capture/internal/postgres"
 	"github.com/001ajd/change-data-capture/internal/sink"
@@ -21,7 +22,7 @@ func main() {
 	defer cancel()
 
 	// Postgres database configuration + The sink configuration
-	// The publication, replication slot and replication level = logical should be already set before running this.
+	// The publication, replication slot and replication level logical should be already set in postgres before running this.
 	config := appconfig.Config{
 		LogLevel: "debug",
 		Postgres: appconfig.Postgres{
@@ -55,7 +56,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	sinkHandler := sink.NewHandler(configuredSink)
+	sinkHandler := sink.NewHandler(jsonl.NewEncoder(), configuredSink)
 	defer sinkHandler.Close()
 	streamer := postgres.NewStreamer(l, config.Postgres, dispatcher.NewSinkDispatcher(sinkHandler), tracker)
 	if err := streamer.Run(ctx); err != nil {

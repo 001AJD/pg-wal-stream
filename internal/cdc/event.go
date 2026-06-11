@@ -24,6 +24,11 @@ type Event struct {
 	Columns   map[string]Value
 }
 
+type EncodedEvent struct {
+	Data []byte
+	LSN  string
+}
+
 type Acker interface {
 	Acknowledge(lsn string)
 }

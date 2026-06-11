@@ -6,12 +6,13 @@ import (
 	"testing"
 
 	"github.com/001ajd/change-data-capture/internal/cdc"
+	"github.com/001ajd/change-data-capture/internal/encoder/jsonl"
 	"github.com/001ajd/change-data-capture/internal/sink"
 )
 
 func TestSinkDispatcherDispatchesToSinkHandler(t *testing.T) {
 	target := &recordingSink{}
-	dispatcher := NewSinkDispatcher(sink.NewHandler(target))
+	dispatcher := NewSinkDispatcher(sink.NewHandler(jsonl.NewEncoder(), target))
 
 	event := cdc.Event{Operation: cdc.OperationInsert}
 	if err := dispatcher.Dispatch(context.Background(), event); err != nil {
@@ -25,7 +26,7 @@ func TestSinkDispatcherDispatchesToSinkHandler(t *testing.T) {
 
 func TestSinkDispatcherReturnsSinkError(t *testing.T) {
 	sinkErr := errors.New("sink failed")
-	dispatcher := NewSinkDispatcher(sink.NewHandler(&failingSink{err: sinkErr}))
+	dispatcher := NewSinkDispatcher(sink.NewHandler(jsonl.NewEncoder(), &failingSink{err: sinkErr}))
 
 	err := dispatcher.Dispatch(context.Background(), cdc.Event{})
 	if !errors.Is(err, sinkErr) {
@@ -34,10 +35,10 @@ func TestSinkDispatcherReturnsSinkError(t *testing.T) {
 }
 
 type recordingSink struct {
-	events []cdc.Event
+	events []cdc.EncodedEvent
 }
 
-func (s *recordingSink) Write(_ context.Context, event cdc.Event) error {
+func (s *recordingSink) Write(_ context.Context, event cdc.EncodedEvent) error {
 	s.events = append(s.events, event)
 	return nil
 }
@@ -48,7 +49,7 @@ type failingSink struct {
 	err error
 }
 
-func (s *failingSink) Write(context.Context, cdc.Event) error {
+func (s *failingSink) Write(context.Context, cdc.EncodedEvent) error {
 	return s.err
 }
 

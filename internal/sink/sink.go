@@ -8,21 +8,36 @@ import (
 )
 
 type Sink interface {
-	Write(ctx context.Context, event cdc.Event) error
+	Write(ctx context.Context, event cdc.EncodedEvent) error
 	Close() error
 }
 
-type Handler struct {
-	sinks []Sink
+type Encoder interface {
+	Encode(event cdc.Event) ([]byte, error)
 }
 
-func NewHandler(sinks ...Sink) *Handler {
-	return &Handler{sinks: sinks}
+type Handler struct {
+	encoder Encoder
+	sinks   []Sink
+}
+
+func NewHandler(encoder Encoder, sinks ...Sink) *Handler {
+	return &Handler{encoder: encoder, sinks: sinks}
 }
 
 func (h *Handler) Handle(ctx context.Context, event cdc.Event) error {
+	data, err := h.encoder.Encode(event)
+	if err != nil {
+		return fmt.Errorf("encode event: %w", err)
+	}
+
+	encoded := cdc.EncodedEvent{
+		Data: data,
+		LSN:  event.LSN,
+	}
+
 	for i, sink := range h.sinks {
-		if err := sink.Write(ctx, event); err != nil {
+		if err := sink.Write(ctx, encoded); err != nil {
 			return fmt.Errorf("write to sink %d: %w", i, err)
 		}
 	}

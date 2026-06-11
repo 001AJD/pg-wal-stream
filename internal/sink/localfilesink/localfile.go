@@ -2,8 +2,6 @@ package localfilesink
 
 import (
 	"context"
-	"encoding/base64"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -51,7 +49,8 @@ func NewLocalFileSink(l logger.Logger, destinationDir string, acker cdc.Acker) *
 	return s
 }
 
-func (s *LocalFileSink) Write(ctx context.Context, event cdc.Event) error {
+// Writes (appends) the data to the destination file.
+func (s *LocalFileSink) Write(ctx context.Context, event cdc.EncodedEvent) error {
 	if s.closed.Load() {
 		return fmt.Errorf("sink is closed")
 	}
@@ -64,14 +63,8 @@ func (s *LocalFileSink) Write(ctx context.Context, event cdc.Event) error {
 		return fmt.Errorf("worker error: %w", err)
 	}
 
-	data, err := json.Marshal(jsonRecord(event))
-	if err != nil {
-		return fmt.Errorf("marshal event: %w", err)
-	}
-	data = append(data, '\n')
-
 	item := eventBatchItem{
-		data: data,
+		data: event.Data,
 		lsn:  event.LSN,
 	}
 
@@ -83,6 +76,7 @@ func (s *LocalFileSink) Write(ctx context.Context, event cdc.Event) error {
 	}
 }
 
+// Closes the event channel
 func (s *LocalFileSink) Close() error {
 	if s.closed.Swap(true) {
 		return nil
@@ -146,42 +140,4 @@ func (s *LocalFileSink) worker() {
 	}
 
 	s.logger.Info("local file sink worker stopped")
-}
-
-type eventRecord struct {
-	Operation string         `json:"operation"`
-	Schema    string         `json:"schema"`
-	Table     string         `json:"table"`
-	LSN       string         `json:"lsn"`
-	CommitLSN string         `json:"commit_lsn"`
-	Columns   map[string]any `json:"columns"`
-}
-
-func jsonRecord(event cdc.Event) eventRecord {
-	columns := make(map[string]any, len(event.Columns))
-	for name, value := range event.Columns {
-		columns[name] = jsonValue(value)
-	}
-
-	return eventRecord{
-		Operation: string(event.Operation),
-		Schema:    event.Schema,
-		Table:     event.Table,
-		LSN:       event.LSN,
-		CommitLSN: event.CommitLSN,
-		Columns:   columns,
-	}
-}
-
-func jsonValue(value cdc.Value) any {
-	switch {
-	case value.Null:
-		return nil
-	case value.UnchangedToasted:
-		return map[string]bool{"unchanged_toasted": true}
-	case len(value.Binary) > 0:
-		return map[string]string{"binary": base64.StdEncoding.EncodeToString(value.Binary)}
-	default:
-		return value.Text
-	}
 }
