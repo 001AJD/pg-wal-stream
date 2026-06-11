@@ -28,36 +28,61 @@ graph LR
 
     subgraph PostgresModule["Postgres Module"]
         Streamer -->|Raw WAL Data| Parser[Parser]
-        Parser -->|cdc.Event| Dispatcher[Dispatcher]
+        Parser -->|cdc.Event| Streamer
     end
 
-    subgraph SinkModule["Sink Pipeline"]
-        Dispatcher -->|cdc.Event| Encoder[JSONL Encoder]
-        Encoder -->|Encoded JSONL Payload| LocalFileSink[Local File Sink]
+    Streamer -->|cdc.Event| Dispatcher[Dispatcher]
+
+    subgraph DispatcherModule["Dispatcher Module"]
+        Dispatcher
+    end
+
+    Dispatcher -->|cdc.Event| SinkHandler[Sink Handler]
+
+    subgraph EncoderModule["Encoder Module"]
+        Encoder[JSONL Encoder]
+    end
+
+    subgraph SinkModule["Sink Module"]
+        SinkHandler
+        LocalFileSink[Local File Sink]
+    end
+
+    SinkHandler <-->|Encode| Encoder
+    SinkHandler -->|cdc.EncodedEvent| LocalFileSink
+
+    subgraph Storage["Storage"]
         LocalFileSink -->|Write / Sync| Disk[Local File System]
     end
 
     subgraph StateManagement["State Management"]
-        LocalFileSink -->|Acknowledge LSN| Tracker[LSN Tracker]
-        Tracker -->|Flushed LSN| Streamer
+        Tracker[LSN Tracker]
     end
 
+    LocalFileSink -->|Acknowledge LSN| Tracker
+    Tracker -->|Flushed LSN| Streamer
     Streamer -.->|Standby Status Update| PostgresDB
 
     classDef postgres fill:#E3F2FD,stroke:#1E88E5,color:#000000
-    classDef pipeline fill:#E8F5E9,stroke:#43A047,color:#000000
+    classDef dispatcher fill:#FCE4EC,stroke:#D81B60,color:#000000
+    classDef sink fill:#E8F5E9,stroke:#43A047,color:#000000
+    classDef encoder fill:#FFFDE7,stroke:#FBC02D,color:#000000
     classDef storage fill:#FFF3E0,stroke:#FB8C00,color:#000000
     classDef state fill:#F3E5F5,stroke:#8E24AA,color:#000000
 
     class PostgresDB,Streamer,Parser postgres
-    class Dispatcher,Encoder pipeline
-    class LocalFileSink,Disk storage
+    class Dispatcher dispatcher
+    class SinkHandler,LocalFileSink sink
+    class Encoder encoder
+    class Disk storage
     class Tracker state
 ```
 
-- **Main (Entry Point)**: Initializes configuration, logger, and bootstraps the pipeline by linking the Postgres, Dispatcher, and Sink modules together.
-- **Postgres Module**: Manages the connection to the PostgreSQL database. It listens to logical replication slots, receives WAL (Write-Ahead Log) messages, parses them into structured `cdc.Event` payloads, and forwards them to the Dispatcher. It also handles sending keepalive and standby status updates back to Postgres to advance the LSN (Log Sequence Number).
+- **Main (Entry Point)**: Initializes configuration, logger, and bootstraps the pipeline by linking the Postgres, Dispatcher, Encoder, and Sink modules together.
+- **Postgres Module**: Manages the connection to the PostgreSQL database. It listens to logical replication slots, receives WAL (Write-Ahead Log) messages, parses them into structured `cdc.Event` payloads via the internal Parser, and forwards them to the Dispatcher. It also handles sending keepalive and standby status updates back to Postgres to advance the LSN (Log Sequence Number).
 - **Dispatcher Module**: Acts as the router. It receives parsed `cdc.Event` payloads from the Postgres module and dispatches them to the configured downstream Sink handlers.
-- **Sink Module**: The destination for CDC events. It provides an interface to support multiple sinks. The primary implementation is `localfile`, which receives events from the dispatcher and appends them to local files in JSONL format.
-- **CDC Module**: Defines the shared domain models (like `Event`) that represent the data payload traversing the system.
+- **Encoder Module**: Responsible for transforming the internal `cdc.Event` into a specific storage format. The `jsonl` implementation encodes events as line-delimited JSON objects.
+- **Sink Module**: The destination for CDC events. The `Sink Handler` coordinates the flow by using an Encoder to format the event and then writing the result to one or more Sinks. The primary implementation is `localfile`, which appends encoded events to local files.
+- **State Management**: Uses an `LSN Tracker` to keep track of the last successfully flushed LSN. This ensures that in case of a restart, the streamer can resume from the correct position.
+- **CDC Module**: Defines the shared domain models (like `Event` and `EncodedEvent`) that represent the data payload traversing the system.
 - **Config & Logger**: Provide centralized configuration management and structured logging across all components.
