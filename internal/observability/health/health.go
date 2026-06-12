@@ -54,7 +54,7 @@ func (r *Registry) HandleReady(w http.ResponseWriter, req *http.Request) {
 		}
 	}
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte("OK"))
+	_, _ = w.Write([]byte("OK"))
 }
 
 func (r *Registry) HandleLive(w http.ResponseWriter, req *http.Request) {
@@ -69,5 +69,5 @@ func (r *Registry) HandleLive(w http.ResponseWriter, req *http.Request) {
 		}
 	}
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte("OK"))
+	_, _ = w.Write([]byte("OK"))
 }
