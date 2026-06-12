@@ -16,6 +16,9 @@ type Postgres struct {
 	StartLSN              string
 	PublicationNames      []string
 	StandbyStatusInterval time.Duration
+	MaxReconnectAttempts  int           // 0 = unlimited retries
+	ReconnectBaseDelay    time.Duration // base delay for exponential backoff (default: 1s)
+	ReconnectMaxDelay     time.Duration // maximum delay cap (default: 60s)
 }
 
 type Sink struct {

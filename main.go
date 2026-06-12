@@ -34,9 +34,12 @@ func main() {
 		Postgres: appconfig.Postgres{
 			ConnString:            "host=localhost port=5432 user=replicator password=secret dbname=domains replication=database",
 			SlotName:              "slot_domain_cdc",
-			StartLSN:              "0/D7D7A90",
+			StartLSN:              "0/0",
 			PublicationNames:      []string{"pub_domain_cdc"},
 			StandbyStatusInterval: 10 * time.Second,
+			MaxReconnectAttempts:  0,
+			ReconnectBaseDelay:    1 * time.Second,
+			ReconnectMaxDelay:     60 * time.Second,
 		},
 		Sink: appconfig.Sink{
 			Type: appconfig.SinkTypeLocalFile,

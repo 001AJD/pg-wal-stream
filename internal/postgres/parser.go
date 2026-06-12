@@ -17,6 +17,13 @@ func newParser() *parser {
 	}
 }
 
+// Reset clears the cached relation metadata. Must be called on reconnect
+// because Postgres may not re-send RelationMessages for unchanged tables,
+// and any DDL changes during disconnection would make stale entries dangerous.
+func (p *parser) Reset() {
+	p.relations = make(map[uint32]*pglogrepl.RelationMessage)
+}
+
 func (p *parser) parse(msg pglogrepl.Message, lsn string) ([]cdc.Event, error) {
 	switch msg := msg.(type) {
 	case *pglogrepl.RelationMessage:
