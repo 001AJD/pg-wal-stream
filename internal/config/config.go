@@ -28,4 +28,6 @@ type Sink struct {
 
 type LocalFileSink struct {
 	DestinationDir string
+	MaxFileSize    int64  // max segment file size in bytes; 0 = use default (200 MiB)
+	DbName         string // database name used in segment file naming
 }

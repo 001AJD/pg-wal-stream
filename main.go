@@ -45,6 +45,8 @@ func main() {
 			Type: appconfig.SinkTypeLocalFile,
 			LocalFile: appconfig.LocalFileSink{
 				DestinationDir: "./destination",
+				MaxFileSize:    200 * 1024 * 1024, // 200 MiB
+				DbName:         "domains",
 			},
 		},
 	}
@@ -64,9 +66,24 @@ func main() {
 		}
 	}()
 
-	startLSN, err := pglogrepl.ParseLSN(config.Postgres.StartLSN)
+	// Recover flushed LSN from the configured sink's state (if supported).
+	// Falls back to the StartLSN from the config if no prior state exists.
+	lsnString := config.Postgres.StartLSN
+	recoveredLSN, err := sink.RecoverFlushedLSN(config.Sink)
 	if err != nil {
-		l.Error("failed to parse start lsn", "error", err, "lsn", config.Postgres.StartLSN)
+		l.Error("failed to recover flushed LSN from sink", "error", err)
+		os.Exit(1)
+	}
+	if recoveredLSN != "" {
+		lsnString = recoveredLSN
+		l.Info("state file found, using LSN from it", "lsn", recoveredLSN)
+	} else {
+		l.Info("state file not found or unsupported by sink, using config start LSN", "lsn", lsnString)
+	}
+
+	startLSN, err := pglogrepl.ParseLSN(lsnString)
+	if err != nil {
+		l.Error("failed to parse start lsn", "error", err, "lsn", lsnString)
 		os.Exit(1)
 	}
 

@@ -164,8 +164,7 @@ func (s *Streamer) connectAndStream(ctx context.Context) error {
 		return fmt.Errorf("ping postgres: %w", err)
 	}
 
-	// Resume from last flushed LSN — not the initial config StartLSN.
-	// This ensures we pick up exactly where we left off after a reconnect.
+	// Resume from last flushed LSN to pick up exactly where we left off after a reconnect.
 	startLSN := s.tracker.GetFlushed()
 
 	s.logger.Info("starting replication", "slot_name", s.config.SlotName, "start_lsn", startLSN.String())

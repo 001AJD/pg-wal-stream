@@ -25,8 +25,10 @@ type Event struct {
 }
 
 type EncodedEvent struct {
-	Data []byte
-	LSN  string
+	Data   []byte
+	LSN    string
+	Schema string
+	Table  string
 }
 
 type Acker interface {

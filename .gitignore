@@ -33,3 +33,4 @@ go.work.sum
 
 destination/*
 **internal-notes**/**
+.DS_Store

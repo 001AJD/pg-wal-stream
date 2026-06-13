@@ -17,8 +17,22 @@ func NewFromConfig(l logger.Logger, cfg config.Sink, acker cdc.Acker, m *metrics
 		if cfg.LocalFile.DestinationDir == "" {
 			return nil, fmt.Errorf("localfile sink destination directory is required")
 		}
-		return localfilesink.NewLocalFileSink(l, cfg.LocalFile.DestinationDir, acker, m, h), nil
+		if cfg.LocalFile.DbName == "" {
+			return nil, fmt.Errorf("localfile sink database name is required")
+		}
+		return localfilesink.NewLocalFileSink(l, cfg.LocalFile, acker, m, h)
 	default:
 		return nil, fmt.Errorf("unsupported sink type %q", cfg.Type)
+	}
+}
+
+// RecoverFlushedLSN attempts to recover the last flushed LSN from the configured sink.
+// If the sink does not support recovery or no state is found, it returns an empty string.
+func RecoverFlushedLSN(cfg config.Sink) (string, error) {
+	switch cfg.Type {
+	case config.SinkTypeLocalFile:
+		return localfilesink.RecoverFlushedLSN(cfg.LocalFile.DestinationDir)
+	default:
+		return "", nil
 	}
 }

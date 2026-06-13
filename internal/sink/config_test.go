@@ -12,7 +12,9 @@ func TestNewFromConfigCreatesLocalFileSink(t *testing.T) {
 	target, err := NewFromConfig(logger.NewNopLogger(), config.Sink{
 		Type: config.SinkTypeLocalFile,
 		LocalFile: config.LocalFileSink{
-			DestinationDir: "destination",
+			DestinationDir: t.TempDir(),
+			MaxFileSize:    100 * 1024 * 1024,
+			DbName:         "testdb",
 		},
 	}, nil, nil, nil)
 	if err != nil {
@@ -32,8 +34,25 @@ func TestNewFromConfigReturnsErrorForUnsupportedSinkType(t *testing.T) {
 }
 
 func TestNewFromConfigReturnsErrorForMissingLocalFileDestination(t *testing.T) {
-	_, err := NewFromConfig(logger.NewNopLogger(), config.Sink{Type: config.SinkTypeLocalFile}, nil, nil, nil)
+	_, err := NewFromConfig(logger.NewNopLogger(), config.Sink{
+		Type: config.SinkTypeLocalFile,
+		LocalFile: config.LocalFileSink{
+			DbName: "testdb",
+		},
+	}, nil, nil, nil)
 	if err == nil {
 		t.Fatal("error = nil, want missing destination error")
+	}
+}
+
+func TestNewFromConfigReturnsErrorForMissingDbName(t *testing.T) {
+	_, err := NewFromConfig(logger.NewNopLogger(), config.Sink{
+		Type: config.SinkTypeLocalFile,
+		LocalFile: config.LocalFileSink{
+			DestinationDir: t.TempDir(),
+		},
+	}, nil, nil, nil)
+	if err == nil {
+		t.Fatal("error = nil, want missing db name error")
 	}
 }

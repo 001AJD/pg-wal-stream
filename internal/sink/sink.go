@@ -46,8 +46,10 @@ func (h *Handler) Handle(ctx context.Context, event cdc.Event) error {
 	}
 
 	encoded := cdc.EncodedEvent{
-		Data: data,
-		LSN:  event.LSN,
+		Data:   data,
+		LSN:    event.LSN,
+		Schema: event.Schema,
+		Table:  event.Table,
 	}
 
 	for i, sink := range h.sinks {
