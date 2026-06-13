@@ -24,5 +24,23 @@ services:
       - openobserve
     restart: always
 
+  pg-wal-stream:
+    build:
+      context: ../../
+      dockerfile: Dockerfile
+    container_name: pg-wal-stream
+    ports:
+      - "9090:9090"
+    environment:
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
+    volumes:
+      - ../../config.yaml:/app/config.yaml
+      - pg-wal-stream-data:/data/destination
+    command: ["-config", "config.yaml"]
+    depends_on:
+      - otel-collector
+    restart: always
+
 volumes:
   openobserve-data:
+  pg-wal-stream-data:
