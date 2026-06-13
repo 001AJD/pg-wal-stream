@@ -1,0 +1,17 @@
+log_level: debug
+postgres:
+    conn_string: host=localhost port=5432 user=replicator password=secret dbname=domains replication=database
+    slot_name: slot_domain_cdc
+    start_lsn: 0/0
+    publication_names:
+        - pub_domain_cdc
+    standby_status_interval: 10s
+    max_reconnect_attempts: 0
+    reconnect_base_delay: 1s
+    reconnect_max_delay: 1m0s
+sink:
+    type: localfile
+    local_file:
+        destination_dir: /data/destination
+        max_file_size: 209715200
+        db_name: domains

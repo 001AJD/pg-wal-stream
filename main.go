@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"errors"
+	"flag"
+	"fmt"
 	"net/http"
 	"os"
 	"os/signal"
@@ -24,32 +26,32 @@ import (
 
 // entry point. The execution starts here
 func main() {
+	configPath := flag.String("config", "config.yaml", "Path to the configuration file")
+	initFlag := flag.Bool("init", false, "Initialize a default config.example.yaml file")
+	flag.Parse()
+
+	if flag.NArg() > 0 {
+		*configPath = flag.Arg(0)
+	}
+
+	if *initFlag {
+		err := appconfig.GenerateExample("config.example.yaml")
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "failed to generate example config: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Println("Successfully generated config.example.yaml")
+		os.Exit(0)
+	}
+
+	config, err := appconfig.Load(*configPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to load config (use -init to generate an example): %v\n", err)
+		os.Exit(1)
+	}
+
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
-
-	// Postgres database configuration + The sink configuration
-	// The publication, replication slot and replication level logical should be already set in postgres before running this.
-	config := appconfig.Config{
-		LogLevel: "debug",
-		Postgres: appconfig.Postgres{
-			ConnString:            "host=localhost port=5432 user=replicator password=secret dbname=domains replication=database",
-			SlotName:              "slot_domain_cdc",
-			StartLSN:              "0/0",
-			PublicationNames:      []string{"pub_domain_cdc"},
-			StandbyStatusInterval: 10 * time.Second,
-			MaxReconnectAttempts:  0,
-			ReconnectBaseDelay:    1 * time.Second,
-			ReconnectMaxDelay:     60 * time.Second,
-		},
-		Sink: appconfig.Sink{
-			Type: appconfig.SinkTypeLocalFile,
-			LocalFile: appconfig.LocalFileSink{
-				DestinationDir: "./destination",
-				MaxFileSize:    200 * 1024 * 1024, // 200 MiB
-				DbName:         "domains",
-			},
-		},
-	}
 
 	l := logger.NewDefaultLogger(config.LogLevel)
 
