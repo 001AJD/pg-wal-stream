@@ -17,9 +17,9 @@ import (
 )
 
 const (
-	defaultBufferSize               = 1000
+	defaultBufferSize               = 10000
 	defaultMaxFileSize        int64 = 200 * 1024 * 1024 // 200 MiB
-	statePersistWriteInterval       = 100                // persist state every N writes
+	batchSyncEventCount             = 1000               // sync and persist state every N writes
 )
 
 type eventBatchItem struct {
@@ -159,20 +159,36 @@ func (s *LocalFileSink) worker() {
 		return
 	}
 
-	for item := range s.eventChan {
-		if err := s.processEvent(item); err != nil {
-			s.logger.Error("failed to process event", "error", err)
-			s.err.Store(err)
-			if s.metrics != nil {
-				s.metrics.EventsFailedTotal.Inc()
+	ticker := time.NewTicker(1 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case item, ok := <-s.eventChan:
+			if !ok {
+				// Persist final state and close all writers on shutdown.
+				s.syncAll()
+				s.closeAllWriters()
+				s.logger.Info("local file sink worker stopped")
+				return
 			}
-			return
+			if err := s.processEvent(item); err != nil {
+				s.logger.Error("failed to process event", "error", err)
+				s.err.Store(err)
+				if s.metrics != nil {
+					s.metrics.EventsFailedTotal.Inc()
+				}
+				s.syncAll() // attempt final sync on error
+				return
+			}
+		case <-ticker.C:
+			if err := s.syncAll(); err != nil {
+				s.logger.Error("failed to sync on timer", "error", err)
+				s.err.Store(err)
+				return
+			}
 		}
 	}
-
-	// Persist final state and close all writers on shutdown.
-	s.closeAllWriters()
-	s.logger.Info("local file sink worker stopped")
 }
 
 // recoverState loads segment state from the most recent date directory
@@ -297,15 +313,7 @@ func (s *LocalFileSink) processEvent(item eventBatchItem) error {
 	}
 	if s.metrics != nil {
 		s.metrics.SinkWriteLatency.Observe(time.Since(writeStart).Seconds())
-	}
-
-	syncStart := time.Now()
-	if err := tw.file.Sync(); err != nil {
-		return fmt.Errorf("sync segment file: %w", err)
-	}
-	if s.metrics != nil {
 		s.metrics.EventsWrittenTotal.Inc()
-		s.metrics.BatchFlushDuration.Observe(time.Since(syncStart).Seconds())
 	}
 
 	tw.segmentInfo.CurrentSize += int64(len(item.data))
@@ -315,13 +323,37 @@ func (s *LocalFileSink) processEvent(item eventBatchItem) error {
 	}
 	s.state.FlushedLSN = item.lsn
 
-	// Debounced state persistence.
+	// Batch sync and state persistence.
 	s.writesSinceStateSync++
-	if s.writesSinceStateSync >= statePersistWriteInterval {
-		if err := s.persistCurrentState(); err != nil {
-			return fmt.Errorf("persist state: %w", err)
+	if s.writesSinceStateSync >= batchSyncEventCount {
+		if err := s.syncAll(); err != nil {
+			return fmt.Errorf("sync batch: %w", err)
 		}
-		s.writesSinceStateSync = 0
+	}
+
+	return nil
+}
+
+// syncAll syncs all open segment files to disk and persists the state.
+func (s *LocalFileSink) syncAll() error {
+	if s.writesSinceStateSync == 0 {
+		return nil
+	}
+
+	syncStart := time.Now()
+	for key, tw := range s.writers {
+		if err := tw.file.Sync(); err != nil {
+			return fmt.Errorf("sync segment file %s: %w", key, err)
+		}
+	}
+
+	if err := s.persistCurrentState(); err != nil {
+		return fmt.Errorf("persist state: %w", err)
+	}
+	s.writesSinceStateSync = 0
+
+	if s.metrics != nil {
+		s.metrics.BatchFlushDuration.Observe(time.Since(syncStart).Seconds())
 	}
 
 	return nil
