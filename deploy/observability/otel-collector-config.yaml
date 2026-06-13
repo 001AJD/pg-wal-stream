@@ -6,6 +6,12 @@ receivers:
           scrape_interval: 10s
           static_configs:
             - targets: ['host.containers.internal:9090']
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
 
 processors:
   batch:
@@ -22,5 +28,9 @@ service:
   pipelines:
     metrics:
       receivers: [prometheus]
+      processors: [batch]
+      exporters: [otlphttp]
+    logs:
+      receivers: [otlp]
       processors: [batch]
       exporters: [otlphttp]

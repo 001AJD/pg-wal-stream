@@ -1,9 +1,17 @@
 package logger
 
 import (
+	"context"
 	"log/slog"
 	"os"
 	"strings"
+
+	slogmulti "github.com/samber/slog-multi"
+	"go.opentelemetry.io/contrib/bridges/otelslog"
+	"go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp"
+	"go.opentelemetry.io/otel/sdk/log"
+	"go.opentelemetry.io/otel/sdk/resource"
+	semconv "go.opentelemetry.io/otel/semconv/v1.24.0"
 )
 
 // Logger is a generic logging interface that can be implemented by various logging libraries.
@@ -40,8 +48,35 @@ func NewSlogLogger(level string) *SlogLogger {
 		Level: slogLevel,
 	}
 
+	stdoutHandler := slog.NewJSONHandler(os.Stdout, opts)
+
+	exporter, err := otlploghttp.New(context.Background(),
+		otlploghttp.WithEndpoint("localhost:4318"),
+		otlploghttp.WithInsecure(),
+	)
+	if err == nil {
+		res := resource.NewWithAttributes(
+			semconv.SchemaURL,
+			semconv.ServiceName("pg-wal-stream"),
+		)
+		provider := log.NewLoggerProvider(
+			log.WithProcessor(log.NewBatchProcessor(exporter)),
+			log.WithResource(res),
+		)
+
+		otelHandler := otelslog.NewHandler("pg-wal-stream",
+			otelslog.WithLoggerProvider(provider),
+		)
+
+		combinedHandler := slogmulti.Fanout(stdoutHandler, otelHandler)
+
+		return &SlogLogger{
+			inner: slog.New(combinedHandler),
+		}
+	}
+
 	return &SlogLogger{
-		inner: slog.New(slog.NewJSONHandler(os.Stdout, opts)),
+		inner: slog.New(stdoutHandler),
 	}
 }
 
