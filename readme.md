@@ -140,3 +140,10 @@ Start the streaming process by pointing the binary to your configuration file:
 ./pg-wal-stream -config config.example.yaml
 ```
 *(Note: You can also just pass the file as a positional argument: `./pg-wal-stream config.example.yaml`)*
+
+## Production Readiness & Current Limitations
+
+This project is actively being developed. While the core logical streaming pipeline is functional, it is **not yet fully production-ready**. Please consider the following current limitations:
+
+- **Transaction Semantics Not Implemented:** Currently, the streamer reads events directly from the WAL and streams them out immediately. It does not buffer changes or wait for a `COMMIT` message. As a result, events belonging to transactions that are eventually rolled back may still be streamed to your destination.
+- **Limited Sink Support:** The system presently supports exactly **1 Sink Plugin** out of the box: the `localfile` sink. Support for streaming data to message brokers (like Kafka, RabbitMQ, or AWS Kinesis) or other remote endpoints has not been implemented yet.
