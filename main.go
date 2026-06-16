@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"errors"
-	"flag"
 	"fmt"
 	"net/http"
 	"os"
@@ -11,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/001ajd/change-data-capture/internal/cli"
 	appconfig "github.com/001ajd/change-data-capture/internal/config"
 	"github.com/001ajd/change-data-capture/internal/dispatcher"
 	"github.com/001ajd/change-data-capture/internal/encoder/jsonl"
@@ -26,15 +26,13 @@ import (
 
 // entry point. The execution starts here
 func main() {
-	configPath := flag.String("config", "config.yaml", "Path to the configuration file")
-	initFlag := flag.Bool("init", false, "Initialize a default config.example.yaml file")
-	flag.Parse()
-
-	if flag.NArg() > 0 {
-		*configPath = flag.Arg(0)
+	var parser cli.Parser = cli.NewDefaultParser()
+	opts, err := parser.Parse(os.Args[1:])
+	if err != nil {
+		os.Exit(2)
 	}
 
-	if *initFlag {
+	if opts.Init {
 		err := appconfig.GenerateExample("config.example.yaml")
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "failed to generate example config: %v\n", err)
@@ -44,7 +42,7 @@ func main() {
 		os.Exit(0)
 	}
 
-	config, err := appconfig.Load(*configPath)
+	config, err := appconfig.Load(opts.ConfigPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to load config (use -init to generate an example): %v\n", err)
 		os.Exit(1)

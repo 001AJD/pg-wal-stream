@@ -24,7 +24,16 @@ Here is a high-level overview of how the internal modules work together to strea
 
 ```mermaid
 graph LR
-    PostgresDB[PostgreSQL] -->|WAL Stream| Streamer[Streamer]
+    User([User]) -->|CLI Args| CLIParser[CLI Parser]
+
+    subgraph CLIModule["CLI Module"]
+        CLIParser
+    end
+
+    CLIParser -->|cli.Options| Main[Main Entry]
+    Main -->|Initialize & Start| Streamer[Streamer]
+    
+    PostgresDB[PostgreSQL] -->|WAL Stream| Streamer
 
     subgraph PostgresModule["Postgres Module"]
         Streamer -->|Raw WAL Data| Parser[Parser]
@@ -59,12 +68,16 @@ graph LR
     Tracker -->|Flushed LSN| Streamer
     Streamer -.->|Standby Status Update| PostgresDB
 
+    classDef cli fill:#E0F7FA,stroke:#00ACC1,color:#000000
+    classDef main fill:#ECEFF1,stroke:#607D8B,color:#000000
     classDef postgres fill:#E3F2FD,stroke:#1E88E5,color:#000000
     classDef dispatcher fill:#FCE4EC,stroke:#D81B60,color:#000000
     classDef sink fill:#E8F5E9,stroke:#43A047,color:#000000
     classDef encoder fill:#FFFDE7,stroke:#FBC02D,color:#000000
     classDef state fill:#F3E5F5,stroke:#8E24AA,color:#000000
 
+    class CLIParser cli
+    class Main main
     class PostgresDB,Streamer,Parser postgres
     class Dispatcher dispatcher
     class SinkHandler,LocalFileSink sink
@@ -72,6 +85,7 @@ graph LR
     class Tracker state
 ```
 
+- **CLI Module**: Encapsulates command-line argument parsing and provides resolving decoupled `cli.Options`.
 - **Main (Entry Point)**: Initializes configuration, logger, and bootstraps the pipeline by linking the Postgres, Dispatcher, Encoder, and Sink modules together.
 - **Postgres Module**: Manages the connection to the PostgreSQL database. It listens to logical replication slots, receives WAL (Write-Ahead Log) messages, parses them into structured `cdc.Event` payloads via the internal Parser, and forwards them to the Dispatcher. It also handles sending keepalive and standby status updates back to Postgres to advance the LSN (Log Sequence Number).
 - **Dispatcher Module**: Acts as the router. It receives parsed `cdc.Event` payloads from the Postgres module and dispatches them to the configured downstream Sink handlers.
@@ -88,6 +102,7 @@ graph LR
 ├── docs/               # Documentation for features and architecture
 ├── internal/
 │   ├── cdc/            # Core domain models for Change Data Capture
+│   ├── cli/            # Command-line argument parsing
 │   ├── config/         # Configuration management
 │   ├── dispatcher/     # Event routing logic
 │   ├── encoder/        # Data transformation (e.g., JSONL)
@@ -100,3 +115,28 @@ graph LR
 ├── main.go             # Application entry point
 └── readme.md           # Project documentation
 ```
+
+## Getting Started
+
+### 1. Build the Binary
+Clone the repository and build the binary using Go:
+```bash
+go build -o pg-wal-stream .
+```
+
+### 2. Generate a Configuration File
+Generate an example configuration file to get started:
+```bash
+./pg-wal-stream -init
+```
+This will create a `config.example.yaml` file in your current directory.
+
+### 3. Update Configuration
+Open `config.example.yaml` and update the PostgreSQL connection string, replication slot details, and the local file sink destination directory according to your environment. Make sure the `destination_dir` exists.
+
+### 4. Run the Streamer
+Start the streaming process by pointing the binary to your configuration file:
+```bash
+./pg-wal-stream -config config.example.yaml
+```
+*(Note: You can also just pass the file as a positional argument: `./pg-wal-stream config.example.yaml`)*
